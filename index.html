@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test de Oposición - Bomberos</title>
+    <!-- Tailwind CSS por CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para iconos limpios en móvil -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen antialiased selection:bg-emerald-500 selection:text-white">
+
+    <script>
+        // ==========================================
+        // CONFIGURACIÓN ENLACE CSV GOOGLE SHEETS
+        // ==========================================
+        const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQvXkJO5nTXb7UQmaGJ8kr85uC4pJ7rFAi5fjdkiuRU6y38ioGkofuBGPV4zITeVcQ_MdqGQ97ByLs_/pub?output=csv";
+
+        let todasLasPreguntas = [];
+        let preguntasFiltradas = [];
+        let indicePreguntaActual = 0;
+        let respuestasUsuario = {}; 
+        let opcionesBarajadasPorPregunta = []; 
+        let tiempoRestante = 0;
+        let temporizadorIntervalo;
+        let totalPreguntasExamen = 20;
+        let modoJuego = 'examen'; 
+        let desglosePorTema = {};
+
+        window.addEventListener('DOMContentLoaded', () => {
+            if (!URL_CSV || URL_CSV.includes("AQUÍ")) {
+                mostrarError("Por favor, introduce una URL válida de Google Sheets publicada como CSV.");
+                return;
+            }
+            fetch(URL_CSV)
+                .then(response => response.text())
+                .then(texto => {
+                    procesarCSV(texto);
+                    inicializarPantallaConfiguracion();
+                })
+                .catch(err => {
+                    mostrarError("Error al conectar con la base de datos de preguntas. Comprueba tu enlace de Google Sheets.");
+                    console.error(err);
+                });
+        });
+
+        function procesarCSV(texto) {
+            const lineas = texto.split(/\r?\n/);
+            if(lineas.length <= 1) return;
+            
+            for (let i = 1; i < lineas.length; i++) {
+                if (!lineas[i].trim()) continue;
+                const campos = separarCamposCSV(lineas[i]);
+                
+                if (campos.length >= 7) {
+                    todasLasPreguntas.push({
+                        idOriginal: i - 1,
+                        tema: campos[0]?.trim() || "General",
+                        pregunta: campos[1]?.trim() || "",
+                        A: campos[2]?.trim() || "",
+                        B: campos[3]?.trim() || "",
+                        C: campos[4]?.trim() || "",
+                        D: campos[5]?.trim() || "",
+                        correcta: campos[6]?.trim().toUpperCase() || "",
+                        explicacion: campos[7]?.trim() || "Sin explicación disponible."
+                    });
+                }
+            }
+        }
+
+        function separarCamposCSV(linea) {
+            const resultado = [];
+            let dentroDeComillas = false;
+            let campoActual = '';
+            
+            for (let i = 0; i < linea.length; i++) {
+                let char = linea[i];
+                if (char === '"') {
+                    dentroDeComillas = !dentroDeComillas;
+                } else if ((char === '\t' || char === ',') && !dentroDeComillas) {
+                    resultado.push(campoActual);
+                    campoActual = '';
+                } else {
+                    campoActual += char;
+                }
+            }
+            resultado.push(campoActual);
+            return resultado.map(f => f.replace(/^"|"$/g, '').trim());
+        }
+
+        function mostrarError(mensaje) {
+            document.getElementById('pantalla-carga').classList.add('hidden');
+            const errorEl = document.getElementById('pantalla-error');
+            errorEl.innerHTML = `<div class="bg-red-500/10 border border-red-500 p-5 rounded-2xl text-red-400 text-center max-w-md w-full mx-4">
+                <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
+                <p class="font-medium">${mensaje}</p>
+            </div>`;
+            errorEl.classList.remove('hidden');
+        }
+
+        function inicializarPantallaConfiguracion() {
+            document.getElementById('pantalla-carga').classList.add('hidden');
+            document.getElementById('pantalla-config').classList.remove('hidden');
+
+            const temasMap = {};
+            todasLasPreguntas.forEach(p => temasMap[p.tema] = (temasMap[p.tema] || 0) + 1);
+
+            const contenedorTemas = document.getElementById('selector-temas');
+            contenedorTemas.innerHTML = `
+                <label class="flex items-center space-x-3 bg-slate-800 p-3.5 rounded-xl border border-slate-700/60 cursor-pointer hover:bg-slate-700/40 transition">
+                    <input type="checkbox" id="chk-todos-temas" checked onchange="conmutarTodosTemas(this)" class="w-5 h-5 rounded text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500">
+                    <span class="flex-1 text-sm font-bold text-emerald-400">Todos los bloques disponibles (${todasLasPreguntas.length} preguntas)</span>
+                </label>
+            `;
+
+            Object.keys(temasMap).forEach(tema => {
+                contenedorTemas.innerHTML += `
+                    <label class="checkbox-tema flex items-center space-x-3 bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/40 cursor-pointer hover:bg-slate-700/30 transition">
+                        <input type="checkbox" value="${tema}" checked onchange="verificarCheckboxesIndividuales()" class="w-5 h-5 rounded text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500">
+                        <span class="flex-1 text-sm text-slate-300 font-medium">${tema} <span class="text-xs text-slate-500 font-mono">(${temasMap[tema]} p.)</span></span>
+                    </label>
+                `;
+            });
+
+            actualizarMaximoPreguntas();
+        }
+
+        function conmutarTodosTemas(master) {
+            document.querySelectorAll('.checkbox-tema input').forEach(cb => cb.checked = master.checked);
+            actualizarMaximoPreguntas();
+        }
+
+        function verificarCheckboxesIndividuales() {
+            const checkboxes = document.querySelectorAll('.checkbox-tema input');
+            document.getElementById('chk-todos-temas').checked = Array.from(checkboxes).filter(cb => cb.checked).length === checkboxes.length;
+            actualizarMaximoPreguntas();
+        }
+
+        function actualizarMaximoPreguntas() {
+            const seleccionados = obtenerTemasSeleccionados();
+            const filtradas = todasLasPreguntas.filter(p => seleccionados.includes(p.tema));
+            const inputNum = document.getElementById('num-preguntas');
+            inputNum.max = filtradas.length;
+            if(parseInt(inputNum.value) > filtradas.length || inputNum.value == 20) {
+                inputNum.value = Math.min(20, filtradas.length);
+            }
+            document.getElementById('max-preguntas-ayuda').innerText = `Disponibles: ${filtradas.length}`;
+        }
+
+        function obtenerTemasSeleccionados() {
+            return Array.from(document.querySelectorAll('.checkbox-tema input')).filter(cb => cb.checked).map(cb => cb.value);
+        }
+
+        function iniciarTest() {
+            const temasSeleccionados = obtenerTemasSeleccionados();
+            if(temasSeleccionados.length === 0) {
+                alert("Selecciona al menos un bloque temático para continuar.");
+                return;
+            }
+
+            let pool = todasLasPreguntas.filter(p => temasSeleccionados.includes(p.tema));
+            pool.sort(() => Math.random() - 0.5);
+
+            totalPreguntasExamen = Math.min(parseInt(document.getElementById('num-preguntas').value) || 20, pool.length);
+            preguntasFiltradas = pool.slice(0, totalPreguntasExamen);
+
+            modoJuego = document.getElementById('modo-estudio').value;
+
+            opcionesBarajadasPorPregunta = preguntasFiltradas.map(p => {
+                let opciones = [
+                    { letraOriginal: 'A', texto: p.A },
+                    { letraOriginal: 'B', texto: p.B },
+                    { letraOriginal: 'C', texto: p.C },
+                    { letraOriginal: 'D', texto: p.D }
+                ].filter(o => o.texto !== "");
+                return opciones.sort(() => Math.random() - 0.5);
+            });
+
+            const minPorPregunta = parseFloat(document.getElementById('tiempo-por-pregunta').value) || 1.0;
+            tiempoRestante = Math.ceil(totalPreguntasExamen * minPorPregunta * 60);
+
+            indicePreguntaActual = 0;
+            respuestasUsuario = {};
+            desglosePorTema = {};
+            temasSeleccionados.forEach(t => desglosePorTema[t] = { correctas: 0, fallos: 0, nulas: 0, total: 0 });
+
+            document.getElementById('pantalla-config').classList.add('hidden');
+            document.getElementById('pantalla-test').classList.remove('hidden');
+
+            renderizarPregunta();
+            actualizarBarraProgreso();
+            if (minPorPregunta < 900) iniciarTemporizador();
+            else document.getElementById('reloj-indicador').classList.add('hidden');
+        }
+
+        function iniciarTemporizador() {
+            clearInterval(temporizadorIntervalo);
+            const elReloj = document.getElementById('reloj');
+            
+            function relojUI() {
+                if (tiempoRestante <= 0) {
+                    clearInterval(temporizadorIntervalo);
+                    alert("¡Tiempo oficial agotado! Corrigiendo examen automáticamente.");
+                    finalizarYCorregirExamen();
+                    return;
+                }
+                const min = Math.floor(tiempoRestante / 60);
+                const seg = tiempoRestante % 60;
+                elReloj.innerText = `${min.toString().padStart(2, '0')}:${seg.toString().padStart(2, '0')}`;
+                tiempoRestante--;
+            }
+            relojUI();
+            temporizadorIntervalo = setInterval(relojUI, 1000);
+        }
+
+        function renderizarPregunta() {
+            const p = preguntasFiltradas[indicePreguntaActual];
+            const opciones = opcionesBarajadasPorPregunta[indicePreguntaActual];
+            
+            document.getElementById('info-meta-pregunta').innerText = `Pregunta ${indicePreguntaActual + 1} de ${totalPreguntasExamen}`;
+            document.getElementById('tag-tema-pregunta').innerText = p.tema;
+            document.getElementById('texto-pregunta').innerText = p.pregunta;
+
+            const contenedorOpciones = document.getElementById('contenedor-opciones');
+            contenedorOpciones.innerHTML = '';
+            
+            const respondidoEnPractica = modoJuego === 'practica' && respuestasUsuario[indicePreguntaActual] !== undefined;
+
+            opciones.forEach((op, idx) => {
+                const letrasVisuales = ['A', 'B', 'C', 'D'];
+                const letraVisual = letrasVisuales[idx];
+                const esEstaOpcionLaElegida = respuestasUsuario[indicePreguntaActual] === op.letraOriginal;
+                
+                let clasesEstilo = "bg-slate-800/80 border-slate-700/60 text-slate-200 hover:bg-slate-700/50";
+                let badgeLetra = "bg-slate-900 border-slate-700 text-slate-400";
+
+                if (esEstaOpcionLaElegida) {
+                    clasesEstilo = "bg-emerald-500/10 border-emerald-500 text-emerald-300 font-semibold ring-2 ring-emerald-500/20";
+                    badgeLetra = "bg-emerald-500 border-emerald-400 text-slate-950";
+                }
+
+                if (respondidoEnPractica) {
+                    if (op.letraOriginal === p.correcta) {
+                        clasesEstilo = "bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold";
+                        badgeLetra = "bg-emerald-500 border-emerald-400 text-slate-950";
+                    } else if (esEstaOpcionLaElegida && !esEstaOpcionLaElegida === p.correcta) {
+                        clasesEstilo = "bg-red-500/20 border-red-500 text-red-400 font-bold";
+                        badgeLetra = "bg-red-500 border-red-400 text-white";
+                    }
+                }
+
+                const clickAccion = respondidoEnPractica ? '' : `onclick="seleccionarOpcion('${op.letraOriginal}')"`;
+
+                contenedorOpciones.innerHTML += `
+                    <button ${clickAccion} class="w-full text-left p-4 rounded-xl border transition flex items-start space-x-3 text-base ${clasesEstilo}">
+                        <span class="w-6 h-6 shrink-0 flex items-center justify-center rounded-lg text-xs font-bold font-mono border ${badgeLetra}">${letraVisual}</span>
+                        <span class="flex-1 leading-tight">${op.texto}</span>
+                    </button>
+                `;
+            });
+
+            const contenedorJustificacion = document.getElementById('justificacion-practica');
+            if (respondidoEnPractica) {
+                document.getElementById('texto-justificacion-practica').innerText = p.explicacion;
+                contenedorJustificacion.classList.remove('hidden');
+            } else {
+                contenedorJustificacion.classList.add('hidden');
+            }
+
+            document.getElementById('btn-prev').disabled = indicePreguntaActual === 0;
+            const btnNext = document.getElementById('btn-next');
+            if(indicePreguntaActual === totalPreguntasExamen - 1) {
+                btnNext.innerHTML = `<span>Revisar</span> <i class="fa-solid fa-flag-checkered"></i>`;
+                btnNext.onclick = abrirModalNavegacion;
+            } else {
+                btnNext.innerHTML = `<span>Siguiente</span> <i class="fa-solid fa-chevron-right"></i>`;
+                btnNext.onclick = irSiguientePregunta;
+            }
+
+            const btnLimpiar = document.getElementById('btn-limpiar-respuesta');
+            if (respuestasUsuario[indicePreguntaActual] !== undefined && !respondidoEnPractica) {
+                btnLimpiar.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+                btnLimpiar.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function seleccionarOpcion(letraOriginal) {
+            respuestasUsuario[indicePreguntaActual] = letraOriginal;
+            renderizarPregunta();
+            actualizarBarraProgreso();
+            if (modoJuego === 'practica') {
+                renderizarPregunta();
+            }
+        }
+
+        function limpiarRespuestaActual() {
+            delete respuestasUsuario[indicePreguntaActual];
+            renderizarPregunta();
+            actualizarBarraProgreso();
+        }
+
+        function irSiguientePregunta() {
+            if(indicePreguntaActual < totalPreguntasExamen - 1) {
+                indicePreguntaActual++;
+                renderizarPregunta();
+            }
+        }
+
+        function irAnteriorPregunta() {
+            if(indicePreguntaActual > 0) {
+                indicePreguntaActual--;
+                renderizarPregunta();
+            }
+        }
+
+        function actualizarBarraProgreso() {
+            const respondidas = Object.keys(respuestasUsuario).length;
+            const porcentaje = (respondidas / totalPreguntasExamen) * 100;
+            document.getElementById('barra-progreso-llenado').style.width = `${porcentaje}%`;
+            document.getElementById('texto-contador-progreso').innerText = `${respondidas} de ${totalPreguntasExamen} contestadas`;
+        }
+
+        function abrirModalNavegacion() {
+            const grid = document.getElementById('grid-mapa-preguntas');
+            grid.innerHTML = '';
+            for(let i = 0; i < totalPreguntasExamen; i++) {
+                const contestada = respuestasUsuario[i] !== undefined;
+                let clases = "bg-slate-800 border-slate-700 text-slate-400";
+                if(contestada) clases = "bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold";
+                if(i === indicePreguntaActual) clases += " ring-2 ring-offset-2 ring-offset-slate-900 ring-sky-500";
+                grid.innerHTML += `<button onclick="saltarAPregunta(${i})" class="h-11 w-11 rounded-xl border text-sm font-mono flex items-center justify-center transition hover:scale-105 ${clases}">${i + 1}</button>`;
+            }
+            document.getElementById('modal-navegacion').classList.remove('hidden');
+            document.getElementById('modal-navegacion').classList.add('flex');
+        }
+
+        function cerrarModalNavegacion() {
+            document.getElementById('modal-navegacion').classList.add('hidden');
+            document.getElementById('modal-navegacion').classList.remove('flex');
+        }
+
+        function saltarAPregunta(index) {
+            indicePreguntaActual = index;
+            cerrarModalNavegacion();
+            renderizarPregunta();
+        }
+
+        function confirmarEntregaExamen() {
+            const contestadas = Object.keys(respuestasUsuario).length;
+            let mensaje = `¿Deseas finalizar y corregir el simulacro ahora?`;
+            if(contestadas < totalPreguntasExamen) {
+                mensaje = `Te quedan ${totalPreguntasExamen - contestadas} preguntas en blanco. ¿Quieres corregir el examen igualmente?`;
+            }
+            if(confirm(mensaje)) {
+                cerrarModalNavegacion();
+                finalizarYCorregirExamen();
+            }
+        }
+
+        function finalizarYCorregirExamen() {
+            clearInterval(temporizadorIntervalo);
+            document.getElementById('pantalla-test').classList.add('hidden');
+            document.getElementById('pantalla-resultados').classList.remove('hidden');
+
+            let aciertos = 0, fallos = 0, blancos = 0;
+
+            Object.keys(desglosePorTema).forEach(k => desglosePorTema[k] = { correctas: 0, fallos: 0, nulas: 0, total: 0 });
+
+            const contenedorRevision = document.getElementById('contenedor-revision-preguntas');
+            contenedorRevision.innerHTML = '';
+
+            preguntasFiltradas.forEach((p, idx) => {
+                const respUsr = respuestasUsuario[idx];
+                const esCorrecta = respUsr === p.correcta;
+                const esBlanco = respUsr === undefined;
+
+                if (!desglosePorTema[p.tema]) desglosePorTema[p.tema] = { correctas: 0, fallos: 0, nulas: 0, total: 0 };
+                desglosePorTema[p.tema].total++;
+
+                if(esCorrecta) { aciertos++; desglosePorTema[p.tema].correctas++; }
+                else if(esBlanco) { blancos++; desglosePorTema[p.tema].nulas++; }
+                else { fallos++; desglosePorTema[p.tema].fallos++; }
+
+                let htmlOpciones = '';
+                const opcionesMostradas = opcionesBarajadasPorPregunta[idx];
+                const letrasVisuales = ['A', 'B', 'C', 'D'];
+
+                opcionesMostradas.forEach((op, oIdx) => {
+                    let claseOp = "bg-slate-800/40 border-slate-700/50 text-slate-300";
+                    let icono = "";
+
+                    if(op.letraOriginal === p.correcta) {
+                        claseOp = "bg-emerald-500/10 border-emerald-500 text-emerald-400 font-medium";
+                        icono = '<i class="fa-solid fa-circle-check text-emerald-500 ml-auto"></i>';
+                    } else if(op.letraOriginal === respUsr && !esCorrecta) {
+                        claseOp = "bg-red-500/10 border-red-500 text-red-400 font-medium";
+                        icono = '<i class="fa-solid fa-circle-xmark text-red-500 ml-auto"></i>';
+                    }
+
+                    htmlOpciones += `
+                        <div class="p-3.5 rounded-xl border flex items-center space-x-3 text-sm ${claseOp}">
+                            <span class="w-5 h-5 shrink-0 rounded-md font-mono font-bold text-xs border flex items-center justify-center bg-slate-900 border-slate-700">${letrasVisuales[oIdx]}</span>
+                            <span class="leading-snug">${op.texto}</span>
+                            ${icono}
+                        </div>
+                    `;
+                });
+
+                let badge = `<span class="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-1 rounded-full font-medium">Blanco</span>`;
+                if(esCorrecta) badge = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs px-2.5 py-1 rounded-full font-medium">Acierto</span>`;
+                if(!esCorrecta && !esBlanco) badge = `<span class="bg-red-500/10 text-red-400 border border-red-500/30 text-xs px-2.5 py-1 rounded-full font-medium">Fallo</span>`;
+
+                contenedorRevision.innerHTML += `
+                    <div class="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4 shadow-inner">
+                        <div class="flex items-start justify-between space-x-3">
+                            <div>
+                                <span class="text-xs font-mono font-bold text-slate-500 tracking-wider">PREGUNTA ${idx + 1} (${p.tema})</span>
+                                <p class="text-slate-100 font-medium leading-snug mt-1">${p.pregunta}</p>
+                            </div>
+                            ${badge}
+                        </div>
+                        <div class="grid grid-cols-1 gap-2.5">${htmlOpciones}</div>
+                        <div class="bg-slate-800/40 border border-slate-700/30 p-4 rounded-xl text-sm text-slate-300">
+                            <div class="flex items-center space-x-1.5 text-xs text-slate-400 font-bold uppercase tracking-wide mb-1">
+                                <i class="fa-solid fa-circle-info text-sky-400"></i>
+                                <span>Justificación Opositor</span>
+                            </div>
+                            <p class="italic leading-normal">${p.explicacion}</p>
+                        </div>
+                    </div>
+                `;
+            });
+
+            const notaBruta = aciertos - (fallos / 3);
+            const notaFinal = Math.max(0, (notaBruta / totalPreguntasExamen) * 10);
+
+            document.getElementById('res-nota').innerText = notaFinal.toFixed(2);
+            document.getElementById('res-correctas').innerText = aciertos;
+            document.getElementById('res-fallos').innerText = fallos;
+            document.getElementById('res-blancos').innerText = blancos;
+
+            const bloqueNota = document.getElementById('bloque-nota-contenedor');
+            if(notaFinal >= 5.0) {
+                bloqueNota.className = "bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-3xl text-center shadow-lg";
+                document.getElementById('res-nota').className = "text-5xl font-black text-emerald-400 font-mono tracking-tight";
+                document.getElementById('res-apto-txt').innerText = "APTO (Simulacro Superado)";
+                document.getElementById('res-apto-txt').className = "text-xs font-bold uppercase text-emerald-500 mt-1 tracking-wider";
+            } else {
+                bloqueNota.className = "bg-red-500/10 border border-red-500/30 p-6 rounded-3xl text-center shadow-lg";
+                document.getElementById('res-nota').className = "text-5xl font-black text-red-400 font-mono tracking-tight";
+                document.getElementById('res-apto-txt').innerText = "NO APTO (Por debajo del corte)";
+                document.getElementById('res-apto-txt').className = "text-xs font-bold uppercase text-red-400 mt-1 tracking-wider";
+            }
+
+            const tbody = document.getElementById('tabla-analisis-bloques');
+            tbody.innerHTML = '';
+            Object.keys(desglosePorTema).forEach(tema => {
+                const d = desglosePorTema[tema];
+                if(d.total === 0) return;
+                const nBloque = Math.max(0, ((d.correctas - (d.fallos / 3)) / d.total) * 10);
+                tbody.innerHTML += `
+                    <tr class="border-b border-slate-800/80 hover:bg-slate-800/20 transition text-sm">
+                        <td class="py-3.5 px-4 font-medium text-slate-300 max-w-[180px] truncate">${tema}</td>
+                        <td class="py-3.5 px-2 text-center font-mono text-emerald-400 font-bold">${d.correctas}</td>
+                        <td class="py-3.5 px-2 text-center font-mono text-red-400 font-bold">${d.fallos}</td>
+                        <td class="py-3.5 px-2 text-center font-mono text-slate-500">${d.nulas}</td>
+                        <td class="py-3.5 px-4 text-right font-mono font-bold ${nBloque >= 5 ? 'text-emerald-400' : 'text-red-400'}">${nBloque.toFixed(2)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function volverAConfiguracion() {
+            document.getElementById('pantalla-resultados').classList.add('hidden');
+            document.getElementById('pantalla-config').classList.remove('hidden');
+            document.getElementById('reloj-indicador').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+
+    <!-- PANTALLA 1: CARGA INICIAL -->
+    <div id="pantalla-carga" class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-50 p-6">
+        <div class="relative w-20 h-20 mb-4">
+            <div class="absolute inset-0 rounded-full border-4 border-slate-800"></div>
+            <div class="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"></div>
+        </div>
+        <h2 class="text-lg font-bold text-slate-200 tracking-wide">Cargando temario...</h2>
+        <p class="text-sm text-slate-500 text-center mt-1 max-w-xs">Sincronizando preguntas en tiempo real desde Google Sheets.</p>
+    </div>
+
+    <!-- PANTALLA ERROR -->
+    <div id="pantalla-error" class="fixed inset-0 bg-slate-950 hidden flex-col items-center justify-center z-50 p-6"></div>
+
+    <!-- CABECERA GLOBAL -->
+    <header class="bg-slate-950 border-b border-slate-800/80 sticky top-0 z-40 px-4 py-3 shadow-md">
+        <div class="max-w-xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-2.5">
+                <div class="bg-emerald-500 text-slate-950 w-8 h-8 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/10">
+                    <i class="fa-solid fa-fire-extinguisher text-sm"></i>
+                </div>
+                <div>
+                    <h1 class="text-sm font-black tracking-wider uppercase text-slate-100">Test Especializado</h1>
+                    <p class="text-[10px] text-slate-500 font-bold tracking-wide uppercase">Oposiciones Bomberos</p>
+                </div>
+            </div>
+            <div id="reloj-indicador" class="bg-slate-800 border border-slate-700/60 px-3 py-1.5 rounded-xl flex items-center space-x-2 shadow-inner">
+                <i class="fa-regular fa-clock text-xs"></i>
+                <span id="reloj" class="font-mono text-sm font-bold tracking-tight">00:00</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-xl mx-auto p-4 pb-28">
+
+        <!-- PANTALLA 2: CONFIGURACIÓN INICIAL -->
+        <section id="pantalla-config" class="hidden bg-slate-900 border border-slate-800/60 p-6 rounded-3xl space-y-5 shadow-xl mt-2">
+            <div>
+                <h3 class="text-xl font-black text-slate-100 tracking-tight">Configuración del Simulacro</h3>
+                <p class="text-xs text-slate-400">Personaliza los parámetros del cuaderno de examen.</p>
+            </div>
+
+            <!-- Modo de Juego -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">1. Modo de Estudio</label>
+                <select id="modo-estudio" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
+                    <option value="examen">Modo Examen (Resultados y justificaciones al terminar)</option>
+                    <option value="practica">Modo Práctica (Retroalimentación inmediata en cada pregunta)</option>
+                </select>
+            </div>
+
+            <!-- Selector de cantidad -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">2. Número de Preguntas</label>
+                <div class="relative">
+                    <input type="number" id="num-preguntas" value="20" min="1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 font-mono font-bold focus:border-emerald-500 text-base">
+                    <span id="max-preguntas-ayuda" class="absolute right-4 top-3.5 text-xs text-slate-500 font-medium"></span>
+                </div>
+            </div>
+
+            <!-- Tiempos -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">3. Gestión de Tiempo</label>
+                <select id="tiempo-por-pregunta" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
+                    <option value="1.0">1.0 min / pregunta (Simulación Oficial)</option>
+                    <option value="0.75">45 seg / pregunta (Modo Presión Alta)</option>
+                    <option value="9999">Sin límite de tiempo de corte</option>
+                </select>
+            </div>
+
+            <!-- Selector Temático -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">4. Bloques Didácticos Activos</label>
+                <div id="selector-temas" class="space-y-2 max-h-[200px] overflow-y-auto pr-1"></div>
+            </div>
+
+            <button onclick="iniciarTest()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-4 px-6 rounded-xl transition shadow-lg shadow-emerald-500/10 flex items-center justify-center space-x-2 text-base pt-2">
+                <span>Comenzar Test</span>
+                <i class="fa-solid fa-play text-xs"></i>
+            </button>
+        </section>
+
+        <!-- PANTALLA 3: INTERFAZ DEL TEST -->
+        <section id="pantalla-test" class="hidden space-y-4">
+            <div class="flex items-center justify-between px-1">
+                <span id="info-meta-pregunta" class="text-xs font-mono font-bold text-slate-400">Pregunta 0 de 0</span>
+                <span id="tag-tema-pregunta" class="bg-slate-800 text-slate-400 border border-slate-700/40 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider max-w-[180px] truncate">Tema</span>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl shadow-xl space-y-5">
+                <p id="texto-pregunta" class="text-slate-100 text-base font-semibold leading-snug">Cargando texto...</p>
+                <div id="contenedor-opciones" class="space-y-2.5"></div>
+                
+                <!-- Justificación instantánea para el Modo Práctica -->
+                <div id="justificacion-practica" class="hidden bg-slate-800/60 border border-slate-700/40 p-4 rounded-xl text-sm space-y-1">
+                    <span class="block text-[10px] font-bold uppercase text-slate-400 tracking-wider"><i class="fa-solid fa-circle-info text-emerald-400 mr-1"></i>Explicación Inmediata:</span>
+                    <p id="texto-justificacion-practica" class="italic text-slate-300 font-medium"></p>
+                </div>
+
+                <div class="flex justify-end">
+                    <button id="btn-limpiar-respuesta" onclick="limpiarRespuestaActual()" class="text-xs text-red-400 font-bold hover:text-red-300 transition flex items-center space-x-1 opacity-0 pointer-events-none px-2 py-1">
+                        <i class="fa-solid fa-eraser"></i>
+                        <span>Dejar en blanco</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Botonera Inferior Fija para Móvil -->
+            <div class="fixed bottom-0 left-0 right-0 bg-slate-950 border-t border-slate-800/80 p-4 shadow-2xl z-40">
+                <div class="max-w-xl mx-auto space-y-3">
+                    <div class="flex items-center justify-between text-[11px] text-slate-500 font-bold uppercase px-0.5">
+                        <span id="texto-contador-progreso">0 de 0 contestadas</span>
+                        <button onclick="abrirModalNavegacion()" class="text-emerald-500 hover:text-emerald-400 font-bold flex items-center space-x-1">
+                            <i class="fa-solid fa-grip"></i>
+                            <span>Mapa</span>
+                        </button>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div id="barra-progreso-llenado" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <button id="btn-prev" onclick="irAnteriorPregunta()" class="bg-slate-900 border border-slate-800 text-slate-200 font-bold py-3.5 px-4 rounded-xl disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-800 transition flex items-center justify-center space-x-2 text-sm">
+                            <i class="fa-solid fa-chevron-left"></i>
+                            <span>Anterior</span>
+                        </button>
+                        <button id="btn-next" class="bg-emerald-500 text-slate-950 font-bold py-3.5 px-4 rounded-xl hover:bg-emerald-600 transition flex items-center justify-center space-x-2 text-sm"></button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PANTALLA 4: RESULTADOS Y REVISIÓN -->
+        <section id="pantalla-resultados" class="hidden space-y-5">
+            <div class="text-center py-1">
+                <h3 class="text-2xl font-black text-slate-100 tracking-tight">Plantilla Corregida</h3>
+                <p class="text-xs text-slate-400">Calificación obtenida aplicando baremo $[Aciertos - (Fallos / 3)]$.</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div id="bloque-nota-contenedor" class="p-6 rounded-3xl text-center shadow-lg">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nota Examen</span>
+                    <span id="res-nota" class="font-mono">0.00</span>
+                    <div id="res-apto-txt"></div>
+                </div>
+                <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl grid grid-cols-3 gap-2 items-center justify-center shadow-md">
+                    <div class="text-center">
+                        <span class="block text-[10px] font-bold text-emerald-500 uppercase">Aciertos</span>
+                        <span id="res-correctas" class="text-xl font-bold font-mono text-slate-100">0</span>
+                    </div>
+                    <div class="text-center border-x border-slate-800">
+                        <span class="block text-[10px] font-bold text-red-400 uppercase">Fallos</span>
+                        <span id="res-fallos" class="text-xl font-bold font-mono text-slate-100">0</span>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-[10px] font-bold text-slate-500 uppercase">Blancos</span>
+                        <span id="res-blancos" class="text-xl font-bold font-mono text-slate-100">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rendimiento Temático -->
+            <div class="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden shadow-md p-4 space-y-2">
+                <span class="block text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Rendimiento por Bloque Didáctico</span>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
+                                <th class="py-2 px-4">Bloque</th>
+                                <th class="py-2 px-2 text-center">A.</th>
+                                <th class="py-2 px-2 text-center">F.</th>
+                                <th class="py-2 px-2 text-center">B.</th>
+                                <th class="py-2 px-4 text-right">Nota</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-analisis-bloques"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Revisión de preguntas -->
+            <div class="space-y-4 pt-2">
+                <h4 class="text-sm font-bold uppercase text-slate-400 tracking-wider px-1">Revisión Detallada de Preguntas</h4>
+                <div id="contenedor-revision-preguntas" class="space-y-4"></div>
+            </div>
+
+            <button onclick="volverAConfiguracion()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold py-4 px-6 rounded-xl transition flex items-center justify-center space-x-2 text-base">
+                <i class="fa-solid fa-rotate-left text-xs"></i>
+                <span>Nuevo Test Personalizado</span>
+            </button>
+        </section>
+    </main>
+
+    <!-- MODAL: MAPA DE NAVEGACIÓN -->
+    <div id="modal-navegacion" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-3xl p-5 space-y-5 shadow-2xl">
+            <div class="flex items-center justify-between">
+                <h4 class="text-base font-bold text-slate-100 tracking-tight">Cuadernillo de Respuestas</h4>
+                <button onclick="cerrarModalNavegacion()" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center"><i class="fa-solid fa-xmark text-sm"></i></button>
+            </div>
+            <div id="grid-mapa-preguntas" class="grid grid-cols-5 gap-2 max-h-[240px] overflow-y-auto p-1 justify-items-center"></div>
+            <div class="pt-1">
+                <button onclick="confirmarEntregaExamen()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-3.5 px-4 rounded-xl transition font-medium flex items-center justify-center space-x-2 text-sm shadow-lg shadow-emerald-500/10">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    <span>Finalizar y Corregir</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
