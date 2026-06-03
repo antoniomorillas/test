@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Test de Oposición - Bomberos</title>
-    <!-- Tailwind CSS por CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome para iconos limpios en móvil -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans min-h-screen antialiased selection:bg-emerald-500 selection:text-white">
@@ -28,6 +26,7 @@
         let modoJuego = 'examen'; 
         let desglosePorTema = {};
 
+        // Cargar datos al iniciar la SPA
         window.addEventListener('DOMContentLoaded', () => {
             if (!URL_CSV || URL_CSV.includes("AQUÍ")) {
                 mostrarError("Por favor, introduce una URL válida de Google Sheets publicada como CSV.");
@@ -45,6 +44,7 @@
                 });
         });
 
+        // Convertir el CSV a objetos limpios
         function procesarCSV(texto) {
             const lineas = texto.split(/\r?\n/);
             if(lineas.length <= 1) return;
@@ -152,21 +152,120 @@
             return Array.from(document.querySelectorAll('.checkbox-tema input')).filter(cb => cb.checked).map(cb => cb.value);
         }
 
+        // Extractor del nombre del "Tema Madre" (Ej: "Tema 33 - BLOQUE 1" -> "Tema 33")
+        function obtenerTemaMadre(nombreBloque) {
+            if (nombreBloque.includes('-')) {
+                return nombreBloque.split('-')[0].trim();
+            }
+            return nombreBloque;
+        }
+
+        // ========================================================
+        // ALGORITMO INTEGRAL DE REPARTO PROPORCIONAL POR TEMAS/BLOQUES
+        // ========================================================
         function iniciarTest() {
-            const temasSeleccionados = obtenerTemasSeleccionados();
-            if(temasSeleccionados.length === 0) {
+            const bloquesSeleccionados = obtenerTemasSeleccionados();
+            if(bloquesSeleccionados.length === 0) {
                 alert("Selecciona al menos un bloque temático para continuar.");
                 return;
             }
 
-            let pool = todasLasPreguntas.filter(p => temasSeleccionados.includes(p.tema));
-            pool.sort(() => Math.random() - 0.5);
-
-            totalPreguntasExamen = Math.min(parseInt(document.getElementById('num-preguntas').value) || 20, pool.length);
-            preguntasFiltradas = pool.slice(0, totalPreguntasExamen);
-
+            totalPreguntasExamen = parseInt(document.getElementById('num-preguntas').value) || 20;
             modoJuego = document.getElementById('modo-estudio').value;
 
+            // 1. Identificar Temas Madre activos y mapear qué bloques pertenecen a cada uno
+            const mapaTemasMadre = {}; // { "Tema 33": ["Tema 33 - BLOQUE 1", "Tema 33 - BLOQUE 2"] }
+            bloquesSeleccionados.forEach(bloque => {
+                const madre = obtenerTemaMadre(bloque);
+                if (!mapaTemasMadre[madre]) mapaTemasMadre[madre] = [];
+                mapaTemasMadre[madre].push(bloque);
+            });
+
+            const listaTemasMadre = Object.keys(mapaTemasMadre);
+            const numTemasMadre = listaTemasMadre.length;
+
+            // 2. Agrupar las preguntas reales disponibles en el Excel por bloque
+            const bancoPreguntasPorBloque = {};
+            bloquesSeleccionados.forEach(b => bancoPreguntasPorBloque[b] = []);
+            todasLasPreguntas.forEach(p => {
+                if (bancoPreguntasPorBloque[p.tema]) {
+                    bancoPreguntasPorBloque[p.tema].push(p);
+                }
+            });
+
+            // Barajar internamente las preguntas de cada bloque para garantizar aleatoriedad
+            Object.keys(bancoPreguntasPorBloque).forEach(b => {
+                bancoPreguntasPorBloque[b].sort(() => Math.random() - 0.5);
+            });
+
+            // 3. Calcular la cuota base teórica por Tema Madre
+            let cuotaPorTemaTeorica = Math.floor(totalPreguntasExamen / numTemasMadre);
+            let remanenteGlobal = totalPreguntasExamen % numTemasMadre;
+
+            const cuotasAsignadasPorBloque = {};
+            bloquesSeleccionados.forEach(b => cuotasAsignadasPorBloque[b] = 0);
+
+            // 4. Distribuir cuotas teóricas a nivel de sub-bloques
+            listaTemasMadre.forEach((madre, index) => {
+                let cuotaTema = cuotaPorTemaTeorica;
+                if (index < remanenteGlobal) cuotaTema++; // Repartir el pico sobrante de la división
+
+                const bloquesHijos = mapaTemasMadre[madre];
+                const numHijos = bloquesHijos.length;
+                let cuotaHijoTeorica = Math.floor(cuotaTema / numHijos);
+                let remanenteHijo = cuotaTema % numHijos;
+
+                bloquesHijos.forEach((bloque, hIdx) => {
+                    let cuotaFinalBloque = cuotaHijoTeorica;
+                    if (hIdx < remanenteHijo) cuotaFinalBloque++;
+                    cuotasAsignadasPorBloque[bloque] = cuotaFinalBloque;
+                });
+            });
+
+            // 5. Extracción real con sistema de compensación por falta de existencias
+            let poolExamen = [];
+            let preguntasQueFaltanPorCapturar = 0;
+            const bloquesConExcedente = [];
+
+            // Primera pasada: Capturar hasta donde permita el stock de cada bloque
+            bloquesSeleccionados.forEach(bloque => {
+                const deseadas = cuotasAsignadasPorBloque[bloque];
+                const disponibles = bancoPreguntasPorBloque[bloque].length;
+                const aCapturar = Math.min(deseadas, disponibles);
+
+                for (let i = 0; i < aCapturar; i++) {
+                    poolExamen.push(bancoPreguntasPorBloque[bloque].shift());
+                }
+
+                if (deseadas > disponibles) {
+                    preguntasQueFaltanPorCapturar += (deseadas - disponibles);
+                }
+                if (bancoPreguntasPorBloque[bloque].length > 0) {
+                    bloquesConExcedente.push(bloque);
+                }
+            });
+
+            // Segunda pasada (Compensación): Si faltan preguntas por stock corto, succionar de los bloques con excedente
+            while (preguntasQueFaltanPorCapturar > 0 && bloquesConExcedente.length > 0) {
+                bloquesConExcedente.sort(() => Math.random() - 0.5); // Aleatorizar el bloque compensador
+                for (let i = bloquesConExcedente.length - 1; i >= 0; i--) {
+                    const bloqueRef = bloquesConExcedente[i];
+                    if (bancoPreguntasPorBloque[bloqueRef].length > 0 && preguntasQueFaltanPorCapturar > 0) {
+                        poolExamen.push(bancoPreguntasPorBloque[bloqueRef].shift());
+                        preguntasQueFaltanPorCapturar--;
+                    }
+                    if (bancoPreguntasPorBloque[bloqueRef].length === 0) {
+                        bloquesConExcedente.splice(i, 1);
+                    }
+                }
+            }
+
+            // Mezclar el resultado final del cuadernillo completo para que no salgan ordenadas por bloques
+            poolExamen.sort(() => Math.random() - 0.5);
+            preguntasFiltradas = poolExamen;
+            totalPreguntasExamen = preguntasFiltradas.length; // Ajuste final por seguridad estructural
+
+            // Barajar las opciones A,B,C,D de forma independiente
             opcionesBarajadasPorPregunta = preguntasFiltradas.map(p => {
                 let opciones = [
                     { letraOriginal: 'A', texto: p.A },
@@ -177,13 +276,14 @@
                 return opciones.sort(() => Math.random() - 0.5);
             });
 
+            // Configurar tiempos
             const minPorPregunta = parseFloat(document.getElementById('tiempo-por-pregunta').value) || 1.0;
             tiempoRestante = Math.ceil(totalPreguntasExamen * minPorPregunta * 60);
 
             indicePreguntaActual = 0;
             respuestasUsuario = {};
             desglosePorTema = {};
-            temasSeleccionados.forEach(t => desglosePorTema[t] = { correctas: 0, fallos: 0, nulas: 0, total: 0 });
+            bloquesSeleccionados.forEach(t => desglosePorTema[t] = { correctas: 0, fallos: 0, nulas: 0, total: 0 });
 
             document.getElementById('pantalla-config').classList.add('hidden');
             document.getElementById('pantalla-test').classList.remove('hidden');
@@ -439,7 +539,7 @@
             document.getElementById('res-nota').innerText = notaFinal.toFixed(2);
             document.getElementById('res-correctas').innerText = aciertos;
             document.getElementById('res-fallos').innerText = fallos;
-            document.getElementById('res-blancos').innerText = blancos;
+            document.getElementById('res-blancos').innerText = whites;
 
             const bloqueNota = document.getElementById('bloque-nota-contenedor');
             if(notaFinal >= 5.0) {
@@ -480,20 +580,17 @@
         }
     </script>
 
-    <!-- PANTALLA 1: CARGA INICIAL -->
     <div id="pantalla-carga" class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-50 p-6">
         <div class="relative w-20 h-20 mb-4">
             <div class="absolute inset-0 rounded-full border-4 border-slate-800"></div>
             <div class="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"></div>
         </div>
         <h2 class="text-lg font-bold text-slate-200 tracking-wide">Cargando temario...</h2>
-        <p class="text-sm text-slate-500 text-center mt-1 max-w-xs">Sincronizando preguntas en tiempo real desde Google Sheets.</p>
+        <p class="text-sm text-slate-500 text-center mt-1 max-w-xs">Aplicando algoritmo de proporcionalidad equilibrada por bloques.</p>
     </div>
 
-    <!-- PANTALLA ERROR -->
     <div id="pantalla-error" class="fixed inset-0 bg-slate-950 hidden flex-col items-center justify-center z-50 p-6"></div>
 
-    <!-- CABECERA GLOBAL -->
     <header class="bg-slate-950 border-b border-slate-800/80 sticky top-0 z-40 px-4 py-3 shadow-md">
         <div class="max-w-xl mx-auto flex items-center justify-between">
             <div class="flex items-center space-x-2.5">
@@ -501,7 +598,7 @@
                     <i class="fa-solid fa-fire-extinguisher text-sm"></i>
                 </div>
                 <div>
-                    <h1 class="text-sm font-black tracking-wider uppercase text-slate-100">Test Especializado</h1>
+                    <h1 class="text-sm font-black tracking-wider uppercase text-slate-100">Simulador Proporcional</h1>
                     <p class="text-[10px] text-slate-500 font-bold tracking-wide uppercase">Oposiciones Bomberos</p>
                 </div>
             </div>
@@ -514,14 +611,12 @@
 
     <main class="max-w-xl mx-auto p-4 pb-28">
 
-        <!-- PANTALLA 2: CONFIGURACIÓN INICIAL -->
         <section id="pantalla-config" class="hidden bg-slate-900 border border-slate-800/60 p-6 rounded-3xl space-y-5 shadow-xl mt-2">
             <div>
                 <h3 class="text-xl font-black text-slate-100 tracking-tight">Configuración del Simulacro</h3>
-                <p class="text-xs text-slate-400">Personaliza los parámetros del cuaderno de examen.</p>
+                <p class="text-xs text-slate-400">Distribución matemática equitativa por Temas y Bloques activos.</p>
             </div>
 
-            <!-- Modo de Juego -->
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">1. Modo de Estudio</label>
                 <select id="modo-estudio" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
@@ -530,7 +625,6 @@
                 </select>
             </div>
 
-            <!-- Selector de cantidad -->
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">2. Número de Preguntas</label>
                 <div class="relative">
@@ -539,7 +633,6 @@
                 </div>
             </div>
 
-            <!-- Tiempos -->
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">3. Gestión de Tiempo</label>
                 <select id="tiempo-por-pregunta" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
@@ -549,19 +642,17 @@
                 </select>
             </div>
 
-            <!-- Selector Temático -->
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">4. Bloques Didácticos Activos</label>
                 <div id="selector-temas" class="space-y-2 max-h-[200px] overflow-y-auto pr-1"></div>
             </div>
 
             <button onclick="iniciarTest()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-4 px-6 rounded-xl transition shadow-lg shadow-emerald-500/10 flex items-center justify-center space-x-2 text-base pt-2">
-                <span>Comenzar Test</span>
+                <span>Comenzar Test Balanced</span>
                 <i class="fa-solid fa-play text-xs"></i>
             </button>
         </section>
 
-        <!-- PANTALLA 3: INTERFAZ DEL TEST -->
         <section id="pantalla-test" class="hidden space-y-4">
             <div class="flex items-center justify-between px-1">
                 <span id="info-meta-pregunta" class="text-xs font-mono font-bold text-slate-400">Pregunta 0 de 0</span>
@@ -572,7 +663,6 @@
                 <p id="texto-pregunta" class="text-slate-100 text-base font-semibold leading-snug">Cargando texto...</p>
                 <div id="contenedor-opciones" class="space-y-2.5"></div>
                 
-                <!-- Justificación instantánea para el Modo Práctica -->
                 <div id="justificacion-practica" class="hidden bg-slate-800/60 border border-slate-700/40 p-4 rounded-xl text-sm space-y-1">
                     <span class="block text-[10px] font-bold uppercase text-slate-400 tracking-wider"><i class="fa-solid fa-circle-info text-emerald-400 mr-1"></i>Explicación Inmediata:</span>
                     <p id="texto-justificacion-practica" class="italic text-slate-300 font-medium"></p>
@@ -586,7 +676,6 @@
                 </div>
             </div>
 
-            <!-- Botonera Inferior Fija para Móvil -->
             <div class="fixed bottom-0 left-0 right-0 bg-slate-950 border-t border-slate-800/80 p-4 shadow-2xl z-40">
                 <div class="max-w-xl mx-auto space-y-3">
                     <div class="flex items-center justify-between text-[11px] text-slate-500 font-bold uppercase px-0.5">
@@ -610,7 +699,6 @@
             </div>
         </section>
 
-        <!-- PANTALLA 4: RESULTADOS Y REVISIÓN -->
         <section id="pantalla-resultados" class="hidden space-y-5">
             <div class="text-center py-1">
                 <h3 class="text-2xl font-black text-slate-100 tracking-tight">Plantilla Corregida</h3>
@@ -639,7 +727,6 @@
                 </div>
             </div>
 
-            <!-- Rendimiento Temático -->
             <div class="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden shadow-md p-4 space-y-2">
                 <span class="block text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Rendimiento por Bloque Didáctico</span>
                 <div class="overflow-x-auto">
@@ -658,7 +745,6 @@
                 </div>
             </div>
 
-            <!-- Revisión de preguntas -->
             <div class="space-y-4 pt-2">
                 <h4 class="text-sm font-bold uppercase text-slate-400 tracking-wider px-1">Revisión Detallada de Preguntas</h4>
                 <div id="contenedor-revision-preguntas" class="space-y-4"></div>
@@ -671,7 +757,6 @@
         </section>
     </main>
 
-    <!-- MODAL: MAPA DE NAVEGACIÓN -->
     <div id="modal-navegacion" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-3xl p-5 space-y-5 shadow-2xl">
             <div class="flex items-center justify-between">
