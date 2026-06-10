@@ -11,7 +11,7 @@
 
     <script>
         // ========================================================
-        // CONFIGURACIÓN: DIRECCIÓN CORRECTA INYECTADA DE FÁBRICA
+        // CONFIGURACIÓN: DIRECCIÓN CORRECTA DE TU NUEVA HOJA
         // ========================================================
         const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT1OefRyXhNqqa7VVe4epUkDzJmeDj9HS08hjtG-QPNp3nSriMY9nZOfutfJ1rJm1V7Da2VQDcdlYZw/pub?output=csv";
 
@@ -44,7 +44,7 @@
                 });
         });
 
-        // Parser robusto de CSV
+        // Parser robusto rectificado para separar por COMAS nativas
         function procesarCSV(texto) {
             const lineas = texto.split(/\r?\n/);
             if(lineas.length <= 1) return;
@@ -78,7 +78,7 @@
                 let char = linea[i];
                 if (char === '"') {
                     dentroDeComillas = !dentroDeComillas;
-                } else if ((char === '\t' || char === ',') && !dentroDeComillas) {
+                } else if (char === ',' && !dentroDeComillas) {
                     resultado.push(campoActual);
                     campoActual = '';
                 } else {
