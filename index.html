@@ -7,34 +7,112 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="bg-slate-900 text-slate-100 font-sans min-h-screen antialiased">
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen antialiased selection:bg-emerald-500 selection:text-white">
 
     <script>
-        // BANCO DE PREGUNTAS INTEGRADO DE FORMA DIRECTA
-        let todasLasPreguntas = [
-            { tema: "Equipamiento operativo", pregunta: "¿Qué ventaja principal aporta el aire comprimido como fuente de energía en herramientas neumáticas?", A: "Es una fuente de energía eléctrica de alta potencia", B: "Es idóneo para atmósferas explosivas", C: "Aumenta la velocidad de corte un 50%", D: "Elimina la necesidad de mantenimiento", correcta: "B", explicacion: "El aire es idóneo para atmósferas explosivas." },
-            { tema: "Equipamiento operativo", pregunta: "En las herramientas neumáticas de accionamiento continuo, ¿qué ocurre durante el trabajo?", A: "El aire mueve pistones", B: "El aire produce un movimiento de vaivén", C: "El aire llena un depósito o cámara", D: "El aire se expulsa al exterior sin llenar depósitos", correcta: "C", explicacion: "El aire llena un depósito o cámara desde que se inicia hasta que finaliza el trabajo." },
-            { tema: "Equipamiento operativo", pregunta: "¿Qué herramientas son ejemplos típicos de accionamiento continuo en neumática?", A: "Martillos neumáticos", B: "Sierras", C: "Cojines separadores y elevadores de mástil", D: "Taladros", correcta: "C", explicacion: "Cojines separadores y sistemas de elevación de mástiles telescópicos." },
-            { tema: "Equipamiento operativo", pregunta: "¿En qué se basa el movimiento en las herramientas neumáticas de accionamiento alternativo?", A: "En el llenado de un depósito", B: "En la introducción de aire en una cámara que mueve álabes o pistones", C: "En el uso de una resistencia eléctrica", D: "En el uso de una batería recargable", correcta: "B", explicacion: "El aire produce movimiento de álabes o pistones transmitido a la herramienta." },
-            { tema: "Equipamiento operativo", pregunta: "¿Qué herramientas emplean accionamiento alternativo en neumática?", A: "Cojines separadores", B: "Mástiles de iluminación", C: "Sierra o martillo neumático", D: "Soportes de gatos", correcta: "C", explicacion: "La sierra o el martillo neumático utilizan este sistema." }
-        ];
+        // ========================================================
+        // CONFIGURACIÓN: NUEVA DIRECCIÓN DE TU GOOGLE SHEETS
+        // ========================================================
+        const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR03pz4qmu8Q0RVTOq8wWr99VIY3gMYK0tj-mYFK8EMphlJ3cvBZBp9ZCxht3cAgd2Q7XNtAQFHjB_R/pub?output=csv";
 
+        let todasLasPreguntas = [];
         let preguntasFiltradas = [];
         let indicePreguntaActual = 0;
         let respuestasUsuario = {}; 
         let opcionesBarajadasPorPregunta = []; 
         let tiempoRestante = 0;
         let temporizadorIntervalo;
-        let totalPreguntasExamen = 5;
+        let totalPreguntasExamen = 20;
         let modoJuego = 'examen'; 
         let desglosePorTema = {};
 
         window.addEventListener('DOMContentLoaded', () => {
-            inicializarPantallaConfiguracion();
+            if (!URL_CSV || URL_CSV.includes("TU_ENLACE")) {
+                mostrarError("Por favor, introduce una URL válida de Google Sheets.");
+                return;
+            }
+            fetch(URL_CSV)
+                .then(response => response.text())
+                .then(texto => {
+                    procesarCSV(texto);
+                    inicializarPantallaConfiguracion();
+                })
+                .catch(err => {
+                    mostrarError("Error al conectar con la base de datos. Comprueba los permisos de tu Google Sheets.");
+                    console.error(err);
+                });
         });
 
-        function inicializarPantallaConfiguracion() {
+        // DETECTOR UNIVERSAL: Identifica automáticamente comas, puntos y comas o tabuladores
+        function procesarCSV(texto) {
+            const lineas = texto.split(/\r?\n/);
+            if(lineas.length <= 1) return;
+
+            const primeraLinea = lineas[0];
+            let separador = ','; 
+            if (primeraLinea.includes('\t')) separador = '\t';
+            else if (primeraLinea.includes(';')) separador = ';';
+
+            for (let i = 1; i < lineas.length; i++) {
+                if (!lineas[i].trim()) continue;
+                
+                const campos = separarCamposUniversal(lineas[i], separador);
+                
+                if (campos.length >= 7) {
+                    todasLasPreguntas.push({
+                        idOriginal: i - 1,
+                        tema: campos[0]?.trim() || "General",
+                        pregunta: campos[1]?.trim() || "",
+                        A: campos[2]?.trim() || "",
+                        B: campos[3]?.trim() || "",
+                        C: campos[4]?.trim() || "",
+                        D: campos[5]?.trim() || "",
+                        correcta: campos[6]?.trim().toUpperCase() || "",
+                        explicacion: campos[7]?.trim() || "Sin explicación disponible."
+                    });
+                }
+            }
+        }
+
+        function separarCamposUniversal(linea, sep) {
+            const resultado = [];
+            let dentroDeComillas = false;
+            let campoActual = '';
+            
+            for (let i = 0; i < linea.length; i++) {
+                let char = linea[i];
+                if (char === '"') {
+                    dentroDeComillas = !dentroDeComillas;
+                } else if (char === sep && !dentroDeComillas) {
+                    resultado.push(campoActual);
+                    campoActual = '';
+                } else {
+                    campoActual += char;
+                }
+            }
+            resultado.push(campoActual);
+            return resultado.map(f => f.replace(/^"|"$/g, '').trim());
+        }
+
+        function mostrarError(mensaje) {
             document.getElementById('pantalla-carga').classList.add('hidden');
+            const errorEl = document.getElementById('pantalla-error');
+            errorEl.innerHTML = `<div class="bg-red-500/10 border border-red-500 p-5 rounded-2xl text-red-400 text-center max-w-md w-full mx-4 shadow-xl">
+                <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
+                <p class="font-medium">${mensaje}</p>
+            </div>`;
+            errorEl.classList.remove('hidden');
+        }
+
+        function inicializarPantallaConfiguracion() {
+            document.getElementById('pantalla-error').classList.add('hidden');
+            document.getElementById('pantalla-carga').classList.add('hidden');
+            
+            if (todasLasPreguntas.length === 0) {
+                mostrarError("La web conecta con el nuevo Sheets, pero la lista está vacía. Rellena las preguntas debajo de los títulos en tu Excel para verlas aquí.");
+                return;
+            }
+
             document.getElementById('pantalla-config').classList.remove('hidden');
 
             const temasMap = {};
@@ -42,16 +120,16 @@
 
             const contenedorTemas = document.getElementById('selector-temas');
             contenedorTemas.innerHTML = `
-                <label class="flex items-center space-x-3 bg-slate-800 p-3.5 rounded-xl border border-slate-700/60 cursor-pointer">
-                    <input type="checkbox" id="chk-todos-temas" checked onchange="conmutarTodosTemas(this)" class="w-5 h-5 rounded text-emerald-500 bg-slate-900 border-slate-700">
+                <label class="flex items-center space-x-3 bg-slate-800 p-3.5 rounded-xl border border-slate-700/60 cursor-pointer hover:bg-slate-700/40 transition">
+                    <input type="checkbox" id="chk-todos-temas" checked onchange="conmutarTodosTemas(this)" class="w-5 h-5 rounded text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500">
                     <span class="flex-1 text-sm font-bold text-emerald-400">Todos los bloques disponibles (${todasLasPreguntas.length} preguntas)</span>
                 </label>
             `;
 
             Object.keys(temasMap).forEach(tema => {
                 contenedorTemas.innerHTML += `
-                    <label class="checkbox-tema flex items-center space-x-3 bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/40 cursor-pointer mt-2">
-                        <input type="checkbox" value="${tema}" checked onchange="verificarCheckboxesIndividuales()" class="w-5 h-5 rounded text-emerald-500 bg-slate-900 border-slate-700">
+                    <label class="checkbox-tema flex items-center space-x-3 bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/40 cursor-pointer hover:bg-slate-700/30 transition">
+                        <input type="checkbox" value="${tema}" checked onchange="verificarCheckboxesIndividuales()" class="w-5 h-5 rounded text-emerald-500 bg-slate-900 border-slate-700 focus:ring-emerald-500">
                         <span class="flex-1 text-sm text-slate-300 font-medium">${tema} <span class="text-xs text-slate-500 font-mono">(${temasMap[tema]} p.)</span></span>
                     </label>
                 `;
@@ -62,33 +140,34 @@
 
         function conmutarTodosTemas(master) { document.querySelectorAll('.checkbox-tema input').forEach(cb => cb.checked = master.checked); actualizarMaximoPreguntas(); }
         function verificarCheckboxesIndividuales() { const checkboxes = document.querySelectorAll('.checkbox-tema input'); document.getElementById('chk-todos-temas').checked = Array.from(checkboxes).filter(cb => cb.checked).length === checkboxes.length; actualizarMaximoPreguntas(); }
-        function actualizarMaximoPreguntas() { const seleccionados = obtenerTemasSeleccionados(); const filtradas = todasLasPreguntas.filter(p => seleccionados.includes(p.tema)); const inputNum = document.getElementById('num-preguntas'); inputNum.max = filtradas.length; inputNum.value = Math.min(5, filtradas.length); document.getElementById('max-preguntas-ayuda').innerText = `Disponibles: ${filtradas.length}`; }
+        
+        function actualizarMaximoPreguntas() {
+            const seleccionados = obtenerTemasSeleccionados();
+            const filtradas = todasLasPreguntas.filter(p => seleccionados.includes(p.tema));
+            const inputNum = document.getElementById('num-preguntas');
+            inputNum.max = filtradas.length;
+            if(parseInt(inputNum.value) > filtradas.length || inputNum.value == 20) {
+                inputNum.value = Math.min(20, filtradas.length);
+            }
+            document.getElementById('max-preguntas-ayuda').innerText = `Disponibles: ${filtradas.length}`;
+        }
+
         function obtenerTemasSeleccionados() { return Array.from(document.querySelectorAll('.checkbox-tema input')).filter(cb => cb.checked).map(cb => cb.value); }
         function obtenerTemaMadre(nombreBloque) { return nombreBloque.includes('-') ? nombreBloque.split('-')[0].trim() : nombreBloque; }
 
         function iniciarTest() {
             const bloquesSeleccionados = obtenerTemasSeleccionados();
-            if(bloquesSeleccionados.length === 0) { alert("Selecciona al menos un bloque."); return; }
-            totalPreguntasExamen = parseInt(document.getElementById('num-preguntas').value) || 5;
+            if(bloquesSeleccionados.length === 0) { alert("Selecciona al menos un bloque temático."); return; }
+            totalPreguntasExamen = parseInt(document.getElementById('num-preguntas').value) || 20;
             modoJuego = document.getElementById('modo-estudio').value;
             
             preguntasFiltradas = todasLasPreguntas.filter(p => bloquesSeleccionados.includes(p.tema)).sort(() => Math.random() - 0.5).slice(0, totalPreguntasExamen);
             totalPreguntasExamen = preguntasFiltradas.length;
-
-            opcionesBarajadasPorPregunta = preguntasFiltradas.map(p => {
-                let opciones = [ { letraOriginal: 'A', texto: p.A }, { letraOriginal: 'B', texto: p.B }, { letraOriginal: 'C', texto: p.C }, { letraOriginal: 'D', texto: p.D } ].filter(o => o.texto !== "");
-                return opciones.sort(() => Math.random() - 0.5);
-            });
-
-            const minPorPregunta = parseFloat(document.getElementById('tiempo-por-pregunta').value) || 1.0;
-            tiempoRestante = Math.ceil(totalPreguntasExamen * minPorPregunta * 60);
-
-            indicePreguntaActual = 0; respuestasUsuario = {}; desglosePorTema = {};
-            bloquesSeleccionados.forEach(t => desglosePorTema[t] = { correctas: 0, fallos: 0, nulas: 0, total: 0 });
-
-            document.getElementById('pantalla-config').classList.add('hidden');
-            document.getElementById('pantalla-test').classList.remove('hidden');
-
+            
+            opcionesBarajadasPorPregunta = preguntasFiltradas.map(p => { let opciones = [ { letraOriginal: 'A', texto: p.A }, { letraOriginal: 'B', texto: p.B }, { letraOriginal: 'C', texto: p.C }, { letraOriginal: 'D', texto: p.D } ].filter(o => o.texto !== ""); return opciones.sort(() => Math.random() - 0.5); });
+            const minPorPregunta = parseFloat(document.getElementById('tiempo-por-pregunta').value) || 1.0; tiempoRestante = Math.ceil(totalPreguntasExamen * minPorPregunta * 60);
+            indicePreguntaActual = 0; respuestasUsuario = {}; desglosePorTema = {}; bloquesSeleccionados.forEach(t => desglosePorTema[t] = { correctas: 0, fallos: 0, nulas: 0, total: 0 });
+            document.getElementById('pantalla-config').classList.add('hidden'); document.getElementById('pantalla-test').classList.remove('hidden');
             renderizarPregunta(); actualizarBarraProgreso();
             if (minPorPregunta < 900) iniciarTemporizador(); else document.getElementById('reloj-indicador').classList.add('hidden');
         }
@@ -101,7 +180,6 @@
             document.getElementById('tag-tema-pregunta').innerText = p.tema; document.getElementById('texto-pregunta').innerText = p.pregunta;
             const contenedorOpciones = document.getElementById('contenedor-opciones'); contenedorOpciones.innerHTML = '';
             const respondidoEnPractica = modoJuego === 'practica' && respuestasUsuario[indicePreguntaActual] !== undefined;
-            
             opciones.forEach((op, idx) => {
                 const letrasVisuales = ['A', 'B', 'C', 'D']; const letraVisual = letrasVisuales[idx]; const esEstaOpcionLaElegida = respuestasUsuario[indicePreguntaActual] === op.letraOriginal;
                 let clasesEstilo = "bg-slate-800/80 border-slate-700/60 text-slate-200 hover:bg-slate-700/50"; let badgeLetra = "bg-slate-900 border-slate-700 text-slate-400";
@@ -168,7 +246,7 @@
             <div class="absolute inset-0 rounded-full border-4 border-slate-800"></div>
             <div class="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"></div>
         </div>
-        <h2 class="text-lg font-bold text-slate-200 tracking-wide">Cargando simulador...</h2>
+        <h2 class="text-lg font-bold text-slate-200 tracking-wide">Cargando temario...</h2>
     </div>
 
     <div id="pantalla-error" class="fixed inset-0 bg-slate-950 hidden flex-col items-center justify-center z-50 p-6"></div>
@@ -195,12 +273,12 @@
         <section id="pantalla-config" class="hidden bg-slate-900 border border-slate-800/60 p-6 rounded-3xl space-y-5 shadow-xl mt-2">
             <div>
                 <h3 class="text-xl font-black text-slate-100 tracking-tight">Configuración del Simulacro</h3>
-                <p class="text-xs text-slate-400">Distribución matemática por Temas.</p>
+                <p class="text-xs text-slate-400">Distribución de preguntas en tiempo real.</p>
             </div>
 
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">1. Modo de Estudio</label>
-                <select id="modo-estudio" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 text-base">
+                <select id="modo-estudio" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
                     <option value="examen">Modo Examen</option>
                     <option value="practica">Modo Práctica</option>
                 </select>
@@ -209,14 +287,14 @@
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">2. Número de Preguntas</label>
                 <div class="relative">
-                    <input type="number" id="num-preguntas" value="5" min="1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 font-mono font-bold text-base">
+                    <input type="number" id="num-preguntas" value="20" min="1" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 font-mono font-bold focus:border-emerald-500 text-base">
                     <span id="max-preguntas-ayuda" class="absolute right-4 top-3.5 text-xs text-slate-500 font-medium"></span>
                 </div>
             </div>
 
             <div class="space-y-2">
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">3. Gestión de Tiempo</label>
-                <select id="tiempo-por-pregunta" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 text-base">
+                <select id="tiempo-por-pregunta" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
                     <option value="1.0">1.0 min / pregunta</option>
                     <option value="9999">Sin límite de tiempo</option>
                 </select>
@@ -227,7 +305,7 @@
                 <div id="selector-temas" class="space-y-2 max-h-[200px] overflow-y-auto pr-1"></div>
             </div>
 
-            <button onclick="iniciarTest()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-4 px-6 rounded-xl transition flex items-center justify-center space-x-2 text-base pt-2">
+            <button onclick="iniciarTest()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-4 px-6 rounded-xl transition shadow-lg shadow-emerald-500/10 flex items-center justify-center space-x-2 text-base pt-2">
                 <span>Comenzar Simulacro</span>
                 <i class="fa-solid fa-play text-xs"></i>
             </button>
@@ -240,14 +318,18 @@
             </div>
 
             <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl shadow-xl space-y-5">
-                <p id="texto-pregunta" class="text-slate-100 text-base font-semibold leading-snug">Cargando...</p>
+                <p id="texto-pregunta" class="text-slate-100 text-base font-semibold leading-snug">Cargando texto...</p>
                 <div id="contenedor-opciones" class="space-y-2.5"></div>
+                
                 <div id="justificacion-practica" class="hidden bg-slate-800/60 border border-slate-700/40 p-4 rounded-xl text-sm space-y-1">
                     <span class="block text-[10px] font-bold uppercase text-slate-400 tracking-wider">Explicación:</span>
                     <p id="texto-justificacion-practica" class="italic text-slate-300 font-medium"></p>
                 </div>
+
                 <div class="flex justify-end">
-                    <button id="btn-limpiar-respuesta" onclick="limpiarRespuestaActual()" class="text-xs text-red-400 font-bold hover:text-red-300 transition opacity-0 pointer-events-none px-2 py-1">Dejar en blanco</button>
+                    <button id="btn-limpiar-respuesta" onclick="limpiarRespuestaActual()" class="text-xs text-red-400 font-bold hover:text-red-300 transition flex items-center space-x-1 opacity-0 pointer-events-none px-2 py-1">
+                        <i class="fa-solid fa-eraser"></i><span>Dejar en blanco</span>
+                    </button>
                 </div>
             </div>
 
@@ -263,8 +345,10 @@
                         <div id="barra-progreso-llenado" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
                     </div>
                     <div class="grid grid-cols-2 gap-3 pt-1">
-                        <button id="btn-prev" onclick="irAnteriorPregunta()" class="bg-slate-900 border border-slate-800 text-slate-200 font-bold py-3.5 px-4 rounded-xl disabled:opacity-40 disabled:pointer-events-none text-sm">Anterior</button>
-                        <button id="btn-next" class="bg-emerald-500 text-slate-950 font-bold py-3.5 px-4 rounded-xl text-sm"></button>
+                        <button id="btn-prev" onclick="irAnteriorPregunta()" class="bg-slate-900 border border-slate-800 text-slate-200 font-bold py-3.5 px-4 rounded-xl disabled:opacity-40 disabled:pointer-events-none hover:bg-slate-800 transition flex items-center justify-center space-x-2 text-sm">
+                            <span>Anterior</span>
+                        </button>
+                        <button id="btn-next" class="bg-emerald-500 text-slate-950 font-bold py-3.5 px-4 rounded-xl hover:bg-emerald-600 transition flex items-center justify-center space-x-2 text-sm"></button>
                     </div>
                 </div>
             </div>
@@ -274,34 +358,68 @@
             <div class="text-center py-1">
                 <h3 class="text-2xl font-black text-slate-100 tracking-tight">Plantilla Corregida</h3>
             </div>
+
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div id="bloque-nota-contenedor" class="p-6 rounded-3xl text-center shadow-lg">
                     <span class="block text-[10px] font-bold text-slate-400 uppercase">Nota Examen</span>
-                    <span id="res-nota" class="text-5xl font-black font-mono tracking-tight">0.00</span>
-                    <div id="res-apto-txt" class="text-xs font-bold uppercase mt-1"></div>
+                    <span id="res-nota" class="font-mono">0.00</span>
+                    <div id="res-apto-txt"></div>
                 </div>
-                <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl grid grid-cols-3 gap-2 items-center text-center shadow-md">
-                    <div><span class="block text-[10px] font-bold text-emerald-500 uppercase">Aciertos</span><span id="res-correctas" class="text-xl font-bold font-mono">0</span></div>
-                    <div class="border-x border-slate-800"><span class="block text-[10px] font-bold text-red-400 uppercase">Fallos</span><span id="res-fallos" class="text-xl font-bold font-mono">0</span></div>
-                    <div><span class="block text-[10px] font-bold text-slate-500 uppercase">Blancos</span><span id="res-blancos" class="text-xl font-bold font-mono">0</span></div>
+                <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl grid grid-cols-3 gap-2 items-center justify-center shadow-md">
+                    <div class="text-center">
+                        <span class="block text-[10px] font-bold text-emerald-500 uppercase">Aciertos</span>
+                        <span id="res-correctas" class="text-xl font-bold font-mono text-slate-100">0</span>
+                    </div>
+                    <div class="text-center border-x border-slate-800">
+                        <span class="block text-[10px] font-bold text-red-400 uppercase">Fallos</span>
+                        <span id="res-fallos" class="text-xl font-bold font-mono text-slate-100">0</span>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-[10px] font-bold text-slate-500 uppercase">Blancos</span>
+                        <span id="res-blancos" class="text-xl font-bold font-mono text-slate-100">0</span>
+                    </div>
                 </div>
             </div>
-            <div class="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden shadow-md p-4">
-                <table class="w-full text-left">
-                    <thead><tr class="border-b border-slate-800 text-[11px] font-bold uppercase text-slate-500"><th class="py-2 px-4">Bloque</th><th class="py-2 px-2 text-center">A.</th><th class="py-2 px-2 text-center">F.</th><th class="py-2 px-2 text-center">B.</th><th class="py-2 px-4 text-right">Nota</th></tr></thead>
-                    <tbody id="tabla-analisis-bloques"></tbody>
-                </table>
+
+            <div class="bg-slate-900 border border-slate-800/80 rounded-2xl overflow-hidden shadow-md p-4 space-y-2">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
+                                <th class="py-2 px-4">Bloque</th>
+                                <th class="py-2 px-2 text-center">A.</th>
+                                <th class="py-2 px-2 text-center">F.</th>
+                                <th class="py-2 px-2 text-center">B.</th>
+                                <th class="py-2 px-4 text-right">Nota</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-analisis-bloques"></tbody>
+                    </table>
+                </div>
             </div>
-            <div id="contenedor-revision-preguntas" class="space-y-4 pt-2"></div>
-            <button onclick="volverAConfiguracion()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold py-4 px-6 rounded-xl text-base">Nuevo Test</button>
+
+            <div class="space-y-4 pt-2">
+                <div id="contenedor-revision-preguntas" class="space-y-4"></div>
+            </div>
+
+            <button onclick="volverAConfiguracion()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold py-4 px-6 rounded-xl transition flex items-center justify-center space-x-2 text-base">
+                <span>Nuevo Test Personalizado</span>
+            </button>
         </section>
     </main>
 
     <div id="modal-navegacion" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
         <div class="bg-slate-900 border border-slate-800 max-w-sm w-full rounded-3xl p-5 space-y-5 shadow-2xl">
-            <div class="flex items-center justify-between"><h4 class="text-base font-bold text-slate-100">Mapa</h4><button onclick="cerrarModalNavegacion()" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center">X</button></div>
-            <div id="grid-mapa-preguntas" class="grid grid-cols-5 gap-2 p-1 justify-items-center"></div>
-            <button onclick="confirmarEntregaExamen()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-3.5 px-4 rounded-xl text-sm">Finalizar y Corregir</button>
+            <div class="flex items-center justify-between">
+                <h4 class="text-base font-bold text-slate-100">Cuadernillo</h4>
+                <button onclick="cerrarModalNavegacion()" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center">X</button>
+            </div>
+            <div id="grid-mapa-preguntas" class="grid grid-cols-5 gap-2 max-h-[240px] overflow-y-auto p-1 justify-items-center"></div>
+            <div class="pt-1">
+                <button onclick="confirmarEntregaExamen()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-3.5 px-4 rounded-xl transition flex items-center justify-center space-x-2 text-sm shadow-lg shadow-emerald-500/10">
+                    <span>Finalizar y Corregir</span>
+                </button>
+            </div>
         </div>
     </div>
 </body>
