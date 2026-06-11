@@ -11,9 +11,9 @@
 
     <script>
         // ========================================================
-        // CONFIGURACIÓN: DIRECCIÓN DE TU GOOGLE SHEETS
+        // CONFIGURACIÓN: DIRECCIÓN DE TU NUEVO GOOGLE SHEETS
         // ========================================================
-        const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT1OefRyXhNqqa7VVe4epUkDzJmeDj9HS08hjtG-QPNp3nSriMY9nZOfutfJ1rJm1V7Da2VQDcdlYZw/pub?output=csv";
+        const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR03pz4qmu8Q0RVTOq8wWr99VIY3gMYK0tj-mYFK8EMphlJ3cvBZBp9ZCxht3cAgd2Q7XNtAQFHjB_R/pub?output=csv";
 
         let todasLasPreguntas = [];
         let preguntasFiltradas = [];
@@ -196,12 +196,7 @@
             
             document.getElementById('info-meta-pregunta').innerText = `Pregunta ${indicePreguntaActual + 1} de ${totalPreguntasExamen}`;
             document.getElementById('tag-tema-pregunta').innerText = p.tema; 
-            
-            // RECTIFICACIÓN: Insertamos el título del tema en la primera línea de la caja de la pregunta, destacada en color esmeralda
-            document.getElementById('texto-pregunta').innerHTML = `
-                <span class="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1.5 font-mono"><i class="fa-solid fa-book-bookmark text-[10px] mr-1"></i>${p.tema}</span>
-                <span class="block text-slate-100 text-base font-semibold leading-snug">${p.pregunta}</span>
-            `;
+            document.getElementById('texto-pregunta').innerText = p.pregunta;
             
             const contenedorOpciones = document.getElementById('contenedor-opciones'); 
             contenedorOpciones.innerHTML = '';
@@ -293,7 +288,7 @@
                 if (!desglosePorTema[p.tema]) desglosePorTema[p.tema] = { correctas: 0, fallos: 0, nulas: 0, total: 0 }; desglosePorTema[p.tema].total++;
                 if(esCorrecta) { aciertos++; desglosePorTema[p.tema].correctas++; } else if(esBlanco) { blancos++; desglosePorTema[p.tema].nulas++; } else { fallos++; desglosePorTema[p.tema].fallos++; }
                 let htmlOpciones = ''; const opcionesMostradas = opcionesBarajadasPorPregunta[idx]; const letrasVisuales = ['A', 'B', 'C', 'D'];
-                optionsMostradas.forEach((op, oIdx) => {
+                opcionesMostradas.forEach((op, oIdx) => {
                     let claseOp = "bg-slate-800/40 border-slate-700/50 text-slate-300"; let icono = "";
                     if(op.letraOriginal === p.correcta) { claseOp = "bg-emerald-500/10 border-emerald-500 text-emerald-400 font-medium"; icono = '<i class="fa-solid fa-circle-check text-emerald-500 ml-auto"></i>'; }
                     else if(op.letraOriginal === respUsr && !esCorrecta) { claseOp = "bg-red-500/10 border-red-500 text-red-400 font-medium"; icono = '<i class="fa-solid fa-circle-xmark text-red-500 ml-auto"></i>'; }
@@ -347,7 +342,7 @@
         <section id="pantalla-config" class="hidden bg-slate-900 border border-slate-800/60 p-6 rounded-3xl space-y-5 shadow-xl mt-2">
             <div>
                 <h3 class="text-xl font-black text-slate-100 tracking-tight">Configuración del Simulacro</h3>
-                <p class="text-xs text-slate-400">Distribución matemática equitativa por Temas.</p>
+                <p class="text-xs text-slate-400">Distribución matemática equitativa por Temas y bloques.</p>
             </div>
 
             <div class="space-y-2">
@@ -393,7 +388,7 @@
             </div>
 
             <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl shadow-xl space-y-5">
-                <p id="texto-pregunta" class="leading-normal"></p>
+                <p id="texto-pregunta" class="text-slate-100 text-base font-semibold leading-snug">Cargando texto...</p>
                 <div id="contenedor-opciones" class="space-y-2.5"></div>
                 
                 <div id="justificacion-practica" class="hidden bg-slate-800/60 border border-slate-700/40 p-4 rounded-xl text-sm space-y-1">
@@ -438,7 +433,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div id="bloque-nota-contenedor" class="p-6 rounded-3xl text-center shadow-lg">
                     <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nota Examen</span>
-                    <span id="res-nota" class="font-mono">0.00</span>
+                    <span id="res-nota" class="text-5xl font-black text-emerald-400 font-mono tracking-tight">0.00</span>
                     <div id="res-apto-txt" class="text-xs font-bold uppercase text-emerald-500 mt-1 tracking-wider"></div>
                 </div>
                 <div class="bg-slate-900 border border-slate-800/80 p-5 rounded-3xl grid grid-cols-3 gap-2 items-center justify-center shadow-md">
