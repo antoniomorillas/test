@@ -13,7 +13,7 @@
         // ========================================================
         // CONFIGURACIÓN: DIRECCIÓN DE TU GOOGLE SHEETS
         // ========================================================
-        const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT1OefRyXhNqqa7VVe4epUkDzJmeDj9HS08hjtG-QPNp3nSriMY9nZOfutfJ1rJm1V7Da2VQDcdlYZw/pub?output=csv";
+        const URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR03pz4qmu8Q0RVTOq8wWr99VIY3gMYK0tj-mYFK8EMphlJ3cvBZBp9ZCxht3cAgd2Q7XNtAQFHjB_R/pub?output=csv";
 
         let todasLasPreguntas = [];
         let preguntasFiltradas = [];
@@ -83,6 +83,7 @@
             for (let i = 0; i < linea.length; i++) {
                 let char = linea[i];
                 if (char === '"') {
+                    insideQuote = !insideQuote; // corrección sintáctica interna latente
                     dentroDeComillas = !dentroDeComillas;
                 } else if (char === sep && !dentroDeComillas) {
                     resultado.push(campoActual);
@@ -156,7 +157,7 @@
         function obtenerTemasSeleccionados() { return Array.from(document.querySelectorAll('.checkbox-tema input')).filter(cb => cb.checked).map(cb => cb.value); }
 
         // ========================================================
-        // ALGORITMO RECTIFICADO: BALANCEO PROPORCIONAL PURO (EQUITATIVO)
+        // ALGORITMO RECTIFICADO: REPARTO EQUITATIVO DE PRECISIÓN
         // ========================================================
         function iniciarTest() {
             const bloquesSeleccionados = obtenerTemasSeleccionados();
@@ -165,61 +166,40 @@
             let numPreguntasSolicitadas = parseInt(document.getElementById('num-preguntas').value) || 20;
             modoJuego = document.getElementById('modo-estudio').value;
 
-            // 1. Agrupamos y barajamos internamente las preguntas por cada tema de forma aislada
-            const bancoPorTema = {};
+            // 1. Separamos y barajamos individualmente las preguntas de cada bloque activo
+            const compartimentos = {};
             bloquesSeleccionados.forEach(tema => {
-                bancoPorTema[tema] = todasLasPreguntas.filter(p => p.tema === tema);
-                bancoPorTema[tema].sort(() => Math.random() - 0.5); // Barajado interno del tema
+                compartimentos[tema] = todasLasPreguntas.filter(p => p.tema === tema);
+                compartimentos[tema].sort(() => Math.random() - 0.5);
             });
-
-            // 2. Calculamos la cuota base por cada bloque seleccionado
-            let cuotaBase = Math.floor(numPreguntasSolicitadas / bloquesSeleccionados.length);
-            let remanentePorRepartir = numPreguntasSolicitadas % bloquesSeleccionados.length;
 
             let poolExamen = [];
-            const excedentesDisponibles = {};
+            let preguntasAsignadas = 0;
 
-            // 3. Primera pasada: Extraemos la cuota base de cada tema respetando su stock máximo
-            bloquesSeleccionados.forEach(tema => {
-                let deseadas = cuotaBase;
-                let disponibles = bancoPorTema[tema].length;
-                let aExtraer = Math.min(deseadas, disponibles);
-
-                for(let i = 0; i < aExtraer; i++) {
-                    poolExamen.push(bancoPorTema[tema].shift());
-                }
-
-                // Si la cuota base pedía más de lo que el tema tiene, acumulamos la diferencia al remanente global
-                if (deseadas > disponibles) {
-                    remanentePorRepartir += (deseadas - disponibles);
-                }
-
-                // Guardamos los que sobran de este tema por si hacen falta para suplir carencias de otros
-                if (bancoPorTema[tema].length > 0) {
-                    excedentesDisponibles[tema] = bancoPorTema[tema];
-                }
-            });
-
-            // 4. Segunda pasada: Si quedan preguntas vacías por rellenar, las extraemos de los temas con excedentes
-            while(remanentePorRepartir > 0 && Object.keys(excedentesDisponibles).length > 0) {
-                const temasConStock = Object.keys(excedentesDisponibles);
-                // Barajamos la lista de temas con stock sobrante para un reparto equitativo y aleatorio
-                temasConStock.sort(() => Math.random() - 0.5);
-
-                for(let i = 0; i < temasConStock.length; i++) {
-                    const temaRef = temasConStock[i];
-                    if(remanentePorRepartir > 0 && excedentesDisponibles[temaRef].length > 0) {
-                        poolExamen.push(excedentesDisponibles[temaRef].shift());
-                        remanentePorRepartir--;
+            // 2. FASE 1: Reparto en rondas cíclicas mientras queden preguntas por asignar
+            let temasActivos = [...bloquesSeleccionados];
+            
+            while (preguntasAsignadas < numPreguntasSolicitadas && temasActivos.length > 0) {
+                // Barajamos el orden de los temas en cada ciclo para romper patrones fijos si hay remanentes
+                temasActivos.sort(() => Math.random() - 0.5);
+                
+                for (let i = temasActivos.length - 1; i >= 0; i--) {
+                    const temaActual = temasActivos[i];
+                    
+                    // Si el tema tiene stock, le extraemos exactamente una pregunta
+                    if (compartimentos[temaActual].length > 0 && preguntasAsignadas < numPreguntasSolicitadas) {
+                        poolExamen.push(compartimentos[temaActual].shift());
+                        preguntasAsignadas++;
                     }
-                    // Si este tema se queda sin stock, lo retiramos del pool de auxilio
-                    if(excedentesDisponibles[temaRef].length === 0) {
-                        delete excedentesDisponibles[temaRef];
+                    
+                    // Si el tema se ha quedado sin preguntas en el cargador, lo eliminamos de las siguientes rondas
+                    if (compartimentos[temaActual].length === 0) {
+                        temasActivos.splice(i, 1);
                     }
                 }
             }
 
-            // 5. Barajamos el pool final completo para mezclar los temas aleatoriamente durante la ejecución del test
+            // 3. Barajamos el examen final completo para que no aparezcan ordenados por bloques
             poolExamen.sort(() => Math.random() - 0.5);
             
             preguntasFiltradas = poolExamen;
@@ -429,6 +409,7 @@
                 <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider">3. Gestión de Tiempo</label>
                 <select id="tiempo-por-pregunta" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-slate-100 focus:border-emerald-500 text-base">
                     <option value="1.0">1.0 min / pregunta (Simulación Oficial)</option>
+                    <option value="0.75">45 seg / pregunta (Modo Presión Alta)</option>
                     <option value="9999">Sin límite de tiempo de corte</option>
                 </select>
             </div>
