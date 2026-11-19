@@ -168,7 +168,7 @@
         }
 
         // ========================================================
-        // ALGORITMO BALANCEADO CON REGLA ESPECIAL (SIGRID = 1 PREGUNTA)
+        // ALGORITMO BALANCEADO: TODOS LOS TEMAS, INCLUIDO SIGRID
         // ========================================================
         function iniciarTest() {
             const bloquesSeleccionados = obtenerTemasSeleccionados();
@@ -187,23 +187,10 @@
             let poolExamen = [];
             let preguntasAsignadas = 0;
 
-            // Detectamos si SIGRID está seleccionado
-            const temaSigrid = bloquesSeleccionados.find(t => t.trim().toUpperCase() === "SIGRID");
-            const esModoMixtoConSigrid = temaSigrid && bloquesSeleccionados.length > 1;
-
+            // Todos los temas seleccionados participan con las mismas reglas.
             let temasParaReparto = [...bloquesSeleccionados];
 
-            // Si es un test combinado donde está SIGRID, extraemos 1 única pregunta y lo excluimos del resto del reparto
-            if (esModoMixtoConSigrid) {
-                if (compartimentos[temaSigrid].length > 0 && preguntasAsignadas < numPreguntasSolicitadas) {
-                    poolExamen.push(compartimentos[temaSigrid].shift());
-                    preguntasAsignadas++;
-                }
-                // Quitamos a SIGRID de la lista de reparto general
-                temasParaReparto = temasParaReparto.filter(t => t !== temaSigrid);
-            }
-
-            // Reparto equitativo y rotativo entre los temas restantes
+            // Reparto equitativo y rotativo entre todos los temas seleccionados
             while (preguntasAsignadas < numPreguntasSolicitadas && temasParaReparto.length > 0) {
                 temasParaReparto.sort(() => Math.random() - 0.5);
                 
